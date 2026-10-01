@@ -1,0 +1,67 @@
+name: Diagnosticar TaskFlow APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apk-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar APK publicada
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 3 -o TaskFlow.apk https://github.com/novaprimegt-coder/Apk/releases/download/stable/TaskFlow.apk
+          ls -lh TaskFlow.apk
+          sha256sum TaskFlow.apk
+          file TaskFlow.apk
+
+      - name: Verificar estructura ZIP
+        run: |
+          set -euxo pipefail
+          unzip -t TaskFlow.apk
+          unzip -l TaskFlow.apk | sed -n '1,120p'
+
+      - name: Localizar Android Build Tools
+        id: tools
+        run: |
+          set -euxo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
+          BUILD_TOOLS_DIR=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -1)
+          echo "build_tools=$BUILD_TOOLS_DIR" >> "$GITHUB_OUTPUT"
+          ls -la "$BUILD_TOOLS_DIR"
+
+      - name: Verificar manifiesto y compatibilidad
+        run: |
+          set -euxo pipefail
+          BT='${{ steps.tools.outputs.build_tools }}'
+          "$BT/aapt" dump badging TaskFlow.apk || "$BT/aapt2" dump badging TaskFlow.apk
+          echo '--- permissions ---'
+          "$BT/aapt" dump permissions TaskFlow.apk || true
+
+      - name: Verificar firma APK
+        run: |
+          set -euxo pipefail
+          BT='${{ steps.tools.outputs.build_tools }}'
+          "$BT/apksigner" verify --verbose --print-certs TaskFlow.apk
+
+      - name: Verificar zipalign
+        run: |
+          set -euxo pipefail
+          BT='${{ steps.tools.outputs.build_tools }}'
+          "$BT/zipalign" -c -P 16 -v 4 TaskFlow.apk
+
+      - name: Resumen de librerías nativas y firmas
+        run: |
+          set -euxo pipefail
+          echo '--- native libs ---'
+          unzip -l TaskFlow.apk | grep -E ' lib/[^/]+/.*\.so$' || true
+          echo '--- META-INF ---'
+          unzip -l TaskFlow.apk | grep 'META-INF/' | head -80 || true
