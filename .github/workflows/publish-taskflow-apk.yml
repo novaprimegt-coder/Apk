@@ -1,0 +1,43 @@
+name: Publish TaskFlow APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-taskflow-apk.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download verified TaskFlow APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://apk.e-droid.net/apk/app4177945-b0jfe2.apk?v=6'
+          OUT='TaskFlow-9.8-build6.apk'
+          TMP="${OUT}.tmp"
+          curl --fail --location --retry 6 --retry-all-errors --connect-timeout 20 --max-time 900 "$URL" -o "$TMP"
+          echo '8d35d8a507289f7d2d697425e640e21ee7e8706707609f3d1db61599a8268754  '"$TMP" | sha256sum -c -
+          test "$(stat -c%s "$TMP")" = "35375741"
+          mv -f "$TMP" "$OUT"
+
+      - name: Commit APK to repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "NovaVision GT"
+          git config user.email "novaprime.gt@gmail.com"
+          git add TaskFlow-9.8-build6.apk
+          if git diff --cached --quiet; then
+            echo "APK already published."
+            exit 0
+          fi
+          git commit -m "TaskFlow 9.8 build 6: publica APK verificado [apk-binary]"
+          git push
