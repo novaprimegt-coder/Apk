@@ -13,13 +13,21 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Clone repository
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
+          cd repo
+          git checkout main
 
-      - name: Download verified TaskFlow APK
+      - name: Download and verify exact APK
         shell: bash
         run: |
           set -euo pipefail
+          cd repo
           URL='https://apk.e-droid.net/apk/app4177945-b0jfe2.apk?v=6'
           OUT='TaskFlow-9.8-build6.apk'
           TMP="${OUT}.tmp"
@@ -28,10 +36,11 @@ jobs:
           test "$(stat -c%s "$TMP")" = "35375741"
           mv -f "$TMP" "$OUT"
 
-      - name: Commit APK to repository
+      - name: Publish APK
         shell: bash
         run: |
           set -euo pipefail
+          cd repo
           git config user.name "NovaVision GT"
           git config user.email "novaprime.gt@gmail.com"
           git add TaskFlow-9.8-build6.apk
@@ -40,4 +49,4 @@ jobs:
             exit 0
           fi
           git commit -m "TaskFlow 9.8 build 6: publica APK verificado [apk-binary]"
-          git push
+          git push origin main
