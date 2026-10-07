@@ -1,0 +1,11 @@
+{
+  "product": "TaskFlow",
+  "release_id": "taskflow-apk-v6-9.8-20261006",
+  "version_name": "9.8",
+  "version_code": 6,
+  "file_name": "TaskFlow.apk",
+  "size_bytes": 35375741,
+  "sha256": "8d35d8a507289f7d2d697425e640e21ee7e8706707609f3d1db61599a8268754",
+  "download_url": "https://github.com/novaprimegt-coder/Apk/releases/download/stable/TaskFlow.apk",
+  "required": true
+}
