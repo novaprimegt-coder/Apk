@@ -1,0 +1,40 @@
+name: Import TaskFlow APK
+
+on:
+  push:
+    paths:
+      - '.github/workflows/import-taskflow-apk.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  import-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download exact TaskFlow APK
+        run: |
+          set -euo pipefail
+          curl -L --fail --retry 5 --retry-delay 2 \
+            'https://apk.e-droid.net/apk/app4177945-b0jfe2.apk?v=6' \
+            -o TaskFlow.apk
+          echo '8d35d8a507289f7d2d697425e640e21ee7e8706707609f3d1db61599a8268754  TaskFlow.apk' | sha256sum -c -
+          test "$(stat -c%s TaskFlow.apk)" = "35375741"
+
+      - name: Publish APK in repository
+        run: |
+          set -euo pipefail
+          git config user.name "NovaVision GT"
+          git config user.email "novaprime.gt@gmail.com"
+          git add TaskFlow.apk
+          if git diff --cached --quiet; then
+            echo "TaskFlow.apk is already current."
+            exit 0
+          fi
+          git commit -m "TaskFlow: publica APK 9.8 build 6"
+          git push origin HEAD:main
