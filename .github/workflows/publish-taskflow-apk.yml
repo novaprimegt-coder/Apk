@@ -1,0 +1,134 @@
+name: Publicar TaskFlow APK oficial
+
+on:
+  push:
+    paths:
+      - ".github/workflows/publish-taskflow-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_URL: "https://apk.e-droid.net/apk/app4177945-b0jfe2.apk?v=6"
+      EXPECTED_SHA256: "8d35d8a507289f7d2d697425e640e21ee7e8706707609f3d1db61599a8268754"
+      EXPECTED_SIZE: "35375741"
+      RELEASE_TAG: "stable"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar APK anterior
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/old
+          gh release download "$RELEASE_TAG" -p "TaskFlow.apk" -D /tmp/old || true
+
+      - name: Descargar APK nueva
+        run: |
+          curl -L --fail --retry 5 --retry-delay 2 --connect-timeout 20             "$SOURCE_URL" -o /tmp/TaskFlow.apk
+          test "$(stat -c%s /tmp/TaskFlow.apk)" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA256  /tmp/TaskFlow.apk" | sha256sum -c -
+
+      - name: Generar verificación
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, struct, subprocess, zipfile
+          from pathlib import Path
+
+          def sha(path):
+              h=hashlib.sha256()
+              with open(path,'rb') as f:
+                  for chunk in iter(lambda:f.read(1024*1024),b''):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          def dex_buildconfig(apk):
+              out={"version_code":None,"version_name":None}
+              with zipfile.ZipFile(apk) as z:
+                  dex=z.read("classes7.dex")
+              def u32(o): return struct.unpack_from("<I",dex,o)[0]
+              def u16(o): return struct.unpack_from("<H",dex,o)[0]
+              def uleb(o):
+                  r=s=0
+                  while True:
+                      x=dex[o]; o+=1; r|=(x&127)<<s
+                      if x<128: return r,o
+                      s+=7
+              soff=u32(60); toff=u32(68); foff=u32(84); cdoff=u32(100); cdsz=u32(96)
+              def st(i):
+                  o=u32(soff+4*i); _,p=uleb(o); e=dex.index(0,p)
+                  return dex[p:e].decode("utf-8","replace")
+              def typ(i): return st(u32(toff+4*i))
+              def field(i):
+                  o=foff+8*i
+                  return typ(u16(o)),typ(u16(o+2)),st(u32(o+4))
+              for ci in range(cdsz):
+                  o=cdoff+32*ci
+                  if typ(u32(o))!="Ltaskflow/desarrollate/BuildConfig;": continue
+                  cd=u32(o+24); sv=u32(o+28); p=cd
+                  sf,p=uleb(p); inf,p=uleb(p); dm,p=uleb(p); vm,p=uleb(p)
+                  fields=[]; idx=0
+                  for _ in range(sf):
+                      d,p=uleb(p); _,p=uleb(p); idx+=d; fields.append(field(idx))
+                  for _ in range(inf):
+                      _,p=uleb(p); _,p=uleb(p)
+                  p=sv; cnt,p=uleb(p); vals=[]
+                  for _ in range(cnt):
+                      h=dex[p]; p+=1; vt=h&31; arg=h>>5
+                      if vt==0x1f: val=bool(arg)
+                      elif vt==0x1e: val=None
+                      else:
+                          n=arg+1; raw=dex[p:p+n]; p+=n
+                          if vt in (0x00,0x02,0x03,0x04,0x06): val=int.from_bytes(raw,"little")
+                          elif vt==0x17: val=st(int.from_bytes(raw,"little"))
+                          else: val=None
+                      vals.append(val)
+                  for f,v in zip(fields,vals):
+                      if f[2]=="VERSION_CODE": out["version_code"]=v
+                      if f[2]=="VERSION_NAME": out["version_name"]=v
+                  break
+              return out
+
+          new="/tmp/TaskFlow.apk"
+          old="/tmp/old/TaskFlow.apk"
+          report={
+              "product":"TaskFlow",
+              "published_file":"TaskFlow.apk",
+              "new_sha256":sha(new),
+              "new_size_bytes":os.path.getsize(new),
+              **dex_buildconfig(new),
+          }
+          if os.path.exists(old):
+              report["previous_sha256"]=sha(old)
+              report["previous_size_bytes"]=os.path.getsize(old)
+              report["previous_build"]=dex_buildconfig(old)
+              def custom_strings(apk):
+                  with zipfile.ZipFile(apk) as z:
+                      data=z.read("classes7.dex")
+                  p=subprocess.run(["strings"],input=data,stdout=subprocess.PIPE,check=True).stdout.decode("utf-8","replace")
+                  return sorted({line for line in p.splitlines() if "__AC24" in line or "AC24_INTERNAL" in line})
+              old_s=set(custom_strings(old)); new_s=set(custom_strings(new))
+              report["new_only_native_markers"]=sorted(new_s-old_s)[:100]
+          Path("TaskFlow-publish-report.json").write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+          print(json.dumps(report,ensure_ascii=False,indent=2))
+          PY
+
+      - name: Reemplazar APK oficial del release stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" /tmp/TaskFlow.apk --clobber
+
+      - name: Guardar reporte de publicación
+        run: |
+          git config user.name "NovaVision GT"
+          git config user.email "novaprime.gt@gmail.com"
+          git add TaskFlow-publish-report.json
+          if ! git diff --cached --quiet; then
+            git commit -m "TaskFlow 9.8 build 6: verificar APK publicada [skip ci]"
+            git push
+          fi
